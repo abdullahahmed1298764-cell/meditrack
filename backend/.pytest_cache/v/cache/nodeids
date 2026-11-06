@@ -1,0 +1,12 @@
+[
+  "tests/test_reports_api.py::test_delete_report",
+  "tests/test_reports_api.py::test_download_report",
+  "tests/test_reports_api.py::test_filter_reports_by_category",
+  "tests/test_reports_api.py::test_invalid_file_formats_and_oversized_files",
+  "tests/test_reports_api.py::test_medical_history_report_linking",
+  "tests/test_reports_api.py::test_patient_isolation_and_doctor_authorization",
+  "tests/test_reports_api.py::test_search_reports",
+  "tests/test_reports_api.py::test_upload_pdf_report",
+  "tests/test_reports_api.py::test_upload_xray_image",
+  "tests/test_reports_api.py::test_view_uploaded_reports"
+]
