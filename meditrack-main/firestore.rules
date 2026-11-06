@@ -1,0 +1,171 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Admin';
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isPatientOwner(uid) {
+      return isOwner(uid) &&
+        get(/databases/$(database)/documents/users/$(uid)).data.role == 'Patient';
+    }
+
+    function isAuthorizedDoctor(patientId) {
+      return isSignedIn()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Doctor'
+        && get(/databases/$(database)/documents/users/$(patientId)).data
+          .get('authorizedDoctors', []).hasAny([request.auth.uid]);
+    }
+
+    function isValidReport(data) {
+      return data.reportTitle is string
+        && data.reportTitle.size() > 0
+        && data.reportTitle.size() <= 120
+        && data.reportCategory in [
+          'Blood Test',
+          'Urine Test',
+          'X-ray',
+          'MRI Scan',
+          'CT Scan',
+          'Prescription',
+          'Other medical document'
+        ]
+        && data.doctorName is string
+        && data.doctorName.size() <= 120
+        && data.hospitalName is string
+        && data.hospitalName.size() <= 160
+        && data.reportDate is timestamp
+        && data.fileName is string
+        && data.fileName.size() <= 255
+        && data.fileType in ['pdf', 'jpg', 'jpeg', 'png']
+        && data.description is string
+        && data.description.size() <= 1000
+        && data.recordId is string
+        && data.recordId.size() <= 128;
+    }
+
+    match /users/{uid} {
+      allow read: if isSignedIn() && (
+        isOwner(uid) ||
+        isAdmin() ||
+        (
+          resource.data.role == 'Patient' &&
+          request.auth.uid in resource.data.get('authorizedDoctors', []) &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Doctor'
+        )
+      );
+      allow create: if isSignedIn() && request.auth.uid == uid;
+      allow update: if isAdmin() || (
+        isOwner(uid) &&
+        request.resource.data.role == resource.data.role &&
+        request.resource.data.isActive == resource.data.isActive
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /patients/{uid} {
+      allow read, write: if isSignedIn() && (isOwner(uid) || isAdmin());
+
+      match /medicines/{medicineId} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && request.resource.data.patientId == uid
+          && request.resource.data.name is string
+          && request.resource.data.name.size() > 0
+          && request.resource.data.name.size() <= 120
+          && request.resource.data.dosage is string
+          && request.resource.data.dosage.size() > 0
+          && request.resource.data.reminderTimes is list
+          && request.resource.data.reminderTimes.size() > 0
+          && request.resource.data.reminderTimes.size() <= 24
+          && request.resource.data.status in ['active', 'completed', 'discontinued'];
+
+        match /doses/{doseId} {
+          allow read, delete: if isOwner(uid);
+          allow create: if isOwner(uid)
+            && request.resource.data.patientId == uid
+            && request.resource.data.medicineId == medicineId
+            && request.resource.data.status == 'pending';
+          allow update: if isOwner(uid)
+            && request.resource.data.patientId == resource.data.patientId
+            && request.resource.data.patientId == uid
+            && request.resource.data.medicineId == resource.data.medicineId
+            && request.resource.data.medicineId == medicineId
+            && (
+              request.resource.data.status == resource.data.status
+              || (
+                resource.data.status == 'pending'
+                && request.resource.data.status in [
+                  'taken',
+                  'skipped',
+                  'missed',
+                  'cancelled'
+                ]
+              )
+              || (
+                resource.data.status == 'cancelled'
+                && request.resource.data.status == 'pending'
+              )
+            );
+        }
+      }
+    }
+
+    match /records/{recordId} {
+      allow read: if isSignedIn() && (
+        resource.data.patientId == request.auth.uid ||
+        isAuthorizedDoctor(resource.data.patientId) ||
+        isAdmin()
+      );
+      allow create: if isSignedIn() && (
+        request.resource.data.patientId == request.auth.uid ||
+        isAuthorizedDoctor(request.resource.data.patientId) ||
+        isAdmin()
+      );
+      allow update, delete: if isSignedIn() && (
+        resource.data.patientId == request.auth.uid ||
+        isAdmin()
+      );
+    }
+
+    match /documents/{docId} {
+      allow read: if isSignedIn() && (
+        resource.data.patientId == request.auth.uid ||
+        isAuthorizedDoctor(resource.data.patientId) ||
+        isAdmin()
+      );
+      allow create: if (
+        isPatientOwner(request.resource.data.patientId) &&
+        request.resource.data.patientId == request.auth.uid &&
+        isValidReport(request.resource.data)
+      ) || (
+        isAdmin()
+      );
+      allow update: if (
+        isPatientOwner(resource.data.patientId) &&
+        resource.data.patientId == request.auth.uid &&
+        isValidReport(request.resource.data) &&
+        request.resource.data.patientId == resource.data.patientId &&
+        request.resource.data.fileName == resource.data.fileName &&
+        request.resource.data.fileType == resource.data.fileType &&
+        request.resource.data.filePath == resource.data.filePath &&
+        request.resource.data.fileUrl == resource.data.fileUrl &&
+        request.resource.data.recordId == resource.data.recordId
+      ) || isAdmin();
+      allow delete: if isPatientOwner(resource.data.patientId) ||
+        isAdmin();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

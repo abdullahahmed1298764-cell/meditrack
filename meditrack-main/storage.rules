@@ -1,0 +1,61 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() &&
+        firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == 'Admin';
+    }
+
+    function isAuthorizedDoctor(patientId) {
+      return isSignedIn() &&
+        firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == 'Doctor' &&
+        firestore.get(/databases/(default)/documents/users/$(patientId)).data
+          .get('authorizedDoctors', []).hasAny([request.auth.uid]);
+    }
+
+    function isPatientOwner(patientId) {
+      return isSignedIn() &&
+        request.auth.uid == patientId &&
+        firestore.get(/databases/(default)/documents/users/$(patientId)).data.role == 'Patient';
+    }
+
+    function isAllowedFileType() {
+      return request.resource.contentType.matches('application/pdf') ||
+        request.resource.contentType.matches('image/jpeg') ||
+        request.resource.contentType.matches('image/png');
+    }
+
+    function isWithinLimit() {
+      return request.resource.size <= 5 * 1024 * 1024;
+    }
+
+    function canRead(patientId) {
+      return isSignedIn() &&
+        (request.auth.uid == patientId || isAuthorizedDoctor(patientId) || isAdmin());
+    }
+
+    function canWrite(patientId) {
+      return isSignedIn() &&
+        (isPatientOwner(patientId) || isAdmin()) &&
+        (request.resource == null || (isAllowedFileType() && isWithinLimit()));
+    }
+
+    match /patients/{patientId}/reports/{fileName} {
+      allow read: if canRead(patientId);
+      allow write: if canWrite(patientId);
+    }
+
+    match /patients/{patientId}/records/{recordId}/{fileName} {
+      allow read: if canRead(patientId);
+      allow write: if canWrite(patientId);
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

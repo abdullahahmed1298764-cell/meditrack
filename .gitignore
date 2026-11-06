@@ -1,0 +1,33 @@
+# Build artifacts and caches
+build/
+**/build/
+.dart_tool/
+**/.dart_tool/
+.flutter-plugins-dependencies
+**/.flutter-plugins-dependencies
+.pub/
+**/.pub/
+.pub-cache/
+**/.pub-cache/
+
+# Python & testing caches
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+**/.pytest_cache/
+
+# Local databases and uploaded test files
+*.db
+backend/meditrack.db
+backend/uploads/reports/*
+!backend/uploads/reports/.gitkeep
+backend/uploads/test_reports/
+
+# IDE and OS
+.DS_Store
+Thumbs.db
+*.log
+.idea/
+.vscode/
