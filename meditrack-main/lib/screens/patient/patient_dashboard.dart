@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import '../../models/medical_record.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/firestore_service.dart';
+import 'book_appointment_screen.dart';
+import 'patient_appointments_screen.dart';
 import 'profile_screen.dart';
 import 'medicine_reminder_screen.dart';
 import 'record_detail_screen.dart';
@@ -99,6 +101,28 @@ class _PatientDashboardState extends State<PatientDashboard> {
                             builder: (_) => const ProfileScreen(),
                           ),
                         ).then((_) => _loadRecords()),
+                      ),
+                      _dashboardCard(
+                        title: 'Book Appointment',
+                        subtitle: 'Request a doctor visit',
+                        icon: Icons.calendar_month_outlined,
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const BookAppointmentScreen(),
+                          ),
+                        ),
+                      ),
+                      _dashboardCard(
+                        title: 'My Appointments',
+                        subtitle: 'View appointment requests',
+                        icon: Icons.calendar_month_outlined,
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const PatientAppointmentsScreen(),
+                          ),
+                        ),
                       ),
                       _dashboardCard(
                         title: 'Add Record',

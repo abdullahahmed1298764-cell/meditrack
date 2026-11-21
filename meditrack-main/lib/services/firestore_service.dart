@@ -1,10 +1,13 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
 
 import '../firebase_options.dart';
+import '../models/appointment.dart';
 import '../models/app_user.dart';
 import '../models/medical_document.dart';
 import '../models/medical_record.dart';
@@ -14,6 +17,8 @@ class FirestoreService {
   static final Map<String, AppUser> demoUsers = {};
   static final Map<String, String> demoPasswords = {};
   static final Map<String, PatientProfile> demoProfiles = {};
+  static final Map<String, Appointment> demoAppointments = {};
+  static final Map<String, Map<String, dynamic>> demoDoctors = {};
   static final Map<String, MedicalRecord> demoRecords = {};
   static final Map<String, MedicalDocument> demoDocuments = {};
   static final Map<String, Set<String>> demoDoctorAccess = {};
@@ -59,6 +64,24 @@ class FirestoreService {
           entry.key,
           Map<String, dynamic>.from(entry.value as Map),
         );
+      }
+    }
+
+    final appointmentsJson = preferences.getString('demo_appointments');
+    if (appointmentsJson != null) {
+      final appointments = jsonDecode(appointmentsJson) as Map<String, dynamic>;
+      for (final entry in appointments.entries) {
+        demoAppointments[entry.key] = Appointment.fromJson(
+          Map<String, dynamic>.from(entry.value as Map),
+        );
+      }
+    }
+
+    final doctorsJson = preferences.getString('demo_doctors');
+    if (doctorsJson != null) {
+      final doctors = jsonDecode(doctorsJson) as Map<String, dynamic>;
+      for (final entry in doctors.entries) {
+        demoDoctors[entry.key] = Map<String, dynamic>.from(entry.value as Map);
       }
     }
 
@@ -108,6 +131,9 @@ class FirestoreService {
     final profiles = demoProfiles.map(
       (key, profile) => MapEntry(key, profile.toMap()),
     );
+    final appointments = demoAppointments.map(
+      (key, appointment) => MapEntry(key, appointment.toJson()),
+    );
     final records = demoRecords.map(
       (key, record) => MapEntry(key, record.toJson()),
     );
@@ -120,12 +146,11 @@ class FirestoreService {
     await preferences.setString('demo_users', jsonEncode(users));
     await preferences.setString('demo_passwords', jsonEncode(demoPasswords));
     await preferences.setString('demo_profiles', jsonEncode(profiles));
+    await preferences.setString('demo_appointments', jsonEncode(appointments));
+    await preferences.setString('demo_doctors', jsonEncode(demoDoctors));
     await preferences.setString('demo_records', jsonEncode(records));
     await preferences.setString('demo_documents', jsonEncode(documents));
-    await preferences.setString(
-      'demo_doctor_access',
-      jsonEncode(doctorAccess),
-    );
+    await preferences.setString('demo_doctor_access', jsonEncode(doctorAccess));
   }
 
   static Future<void> reloadDemoData() async {
@@ -133,6 +158,8 @@ class FirestoreService {
     demoUsers.clear();
     demoPasswords.clear();
     demoProfiles.clear();
+    demoAppointments.clear();
+    demoDoctors.clear();
     demoRecords.clear();
     demoDocuments.clear();
     demoDoctorAccess.clear();
@@ -186,6 +213,12 @@ class FirestoreService {
   CollectionReference<Map<String, dynamic>> _recordsCollection() =>
       db.collection('records');
 
+  CollectionReference<Map<String, dynamic>> _appointmentsCollection() =>
+      db.collection('appointments');
+
+  CollectionReference<Map<String, dynamic>> _doctorsCollection() =>
+      db.collection('doctors');
+
   CollectionReference<Map<String, dynamic>> _documentsCollection() =>
       db.collection('documents');
 
@@ -203,6 +236,71 @@ class FirestoreService {
     final snap = await _userDoc(uid).get();
     if (!snap.exists) return null;
     return AppUser.fromMap(uid, snap.data() ?? {});
+  }
+
+  Future<AppUser?> findUserByEmail(String email) async {
+    final normalizedEmail = email.trim().toLowerCase();
+    if (normalizedEmail.isEmpty) return null;
+
+    if (_isDemoMode) {
+      await initializeDemoData();
+      for (final user in demoUsers.values) {
+        if (user.email.trim().toLowerCase() == normalizedEmail) return user;
+      }
+      return null;
+    }
+
+    final snapshot = await db
+        .collection('users')
+        .where('email', isEqualTo: normalizedEmail)
+        .get();
+    for (final userDocument in snapshot.docs) {
+      final data = userDocument.data();
+      if ((data['email'] ?? '').toString().trim().toLowerCase() ==
+          normalizedEmail) {
+        return AppUser.fromMap(userDocument.id, data);
+      }
+    }
+    return null;
+  }
+
+  Future<String> createDoctorProfile({
+    required String name,
+    required String specialty,
+    required String email,
+  }) async {
+    final normalizedName = name.trim();
+    final normalizedSpecialty = specialty.trim();
+    final normalizedEmail = email.trim().toLowerCase();
+    if (normalizedName.isEmpty ||
+        normalizedSpecialty.isEmpty ||
+        normalizedEmail.isEmpty) {
+      throw ArgumentError('Doctor name, specialty, and email are required.');
+    }
+    if (normalizedName.length > 120 ||
+        normalizedSpecialty.length > 120 ||
+        normalizedEmail.length > 254) {
+      throw ArgumentError('Doctor profile fields exceed their maximum length.');
+    }
+
+    final doctorId = const Uuid().v4();
+    final doctorData = {
+      'doctorId': doctorId,
+      'name': normalizedName,
+      'specialty': normalizedSpecialty,
+      'email': normalizedEmail,
+      'role': 'Doctor',
+    };
+
+    if (_isDemoMode) {
+      await initializeDemoData();
+      demoDoctors[doctorId] = doctorData;
+      await persistDemoData();
+      return doctorId;
+    }
+
+    await _doctorsCollection().doc(doctorId).set(doctorData);
+    return doctorId;
   }
 
   Future<void> savePatientProfile(String uid, PatientProfile profile) async {
@@ -290,6 +388,132 @@ class FirestoreService {
     }
     final ref = _recordsCollection().doc(record.recordId);
     await ref.set(record.toMap());
+  }
+
+  Future<void> requestAppointment(Appointment appointment) async {
+    if (_isDemoMode) {
+      await initializeDemoData();
+      demoAppointments[appointment.id] = appointment;
+      await persistDemoData();
+      return;
+    }
+    await _appointmentsCollection()
+        .doc(appointment.id)
+        .set(appointment.toFirestore());
+  }
+
+  Stream<List<Appointment>> streamDoctorAppointments(String doctorId) {
+    if (_isDemoMode) {
+      return _streamDemoAppointments(doctorId: doctorId);
+    }
+    return _streamFirestoreAppointments(
+      _appointmentsCollection().where('doctorId', isEqualTo: doctorId),
+    ).asBroadcastStream();
+  }
+
+  Stream<List<Appointment>> streamPendingDoctorAppointments(String doctorId) {
+    if (_isDemoMode) {
+      return _streamDemoAppointments(doctorId: doctorId, pendingOnly: true);
+    }
+    return _streamFirestoreAppointments(
+      _appointmentsCollection()
+          .where('doctorId', isEqualTo: doctorId)
+          .where('status', isEqualTo: 'pending'),
+    ).asBroadcastStream();
+  }
+
+  Stream<List<Appointment>> streamPatientAppointments(String patientId) {
+    if (_isDemoMode) {
+      return _streamDemoAppointments(patientId: patientId);
+    }
+    return _streamFirestoreAppointments(
+      _appointmentsCollection().where('patientId', isEqualTo: patientId),
+    ).asBroadcastStream();
+  }
+
+  Stream<List<Appointment>> _streamFirestoreAppointments(
+    Query<Map<String, dynamic>> query,
+  ) {
+    return query
+        .orderBy('dateTime')
+        .snapshots()
+        .map(
+          (snapshot) => snapshot.docs
+              .map((doc) => Appointment.fromJson({...doc.data(), 'id': doc.id}))
+              .toList(),
+        );
+  }
+
+  Stream<List<Appointment>> _streamDemoAppointments({
+    String? doctorId,
+    String? patientId,
+    bool pendingOnly = false,
+  }) {
+    return Stream<List<Appointment>>.multi((controller) {
+      var isCancelled = false;
+
+      Future<void> emitAppointments() async {
+        try {
+          await initializeDemoData();
+          if (isCancelled) return;
+          final appointments =
+              demoAppointments.values
+                  .where(
+                    (appointment) =>
+                        doctorId == null || appointment.doctorId == doctorId,
+                  )
+                  .where(
+                    (appointment) =>
+                        patientId == null || appointment.patientId == patientId,
+                  )
+                  .where(
+                    (appointment) =>
+                        !pendingOnly ||
+                        appointment.status.toLowerCase() == 'pending',
+                  )
+                  .toList()
+                ..sort((a, b) => a.dateTime.compareTo(b.dateTime));
+          controller.add(appointments);
+          controller.close();
+        } catch (error, stackTrace) {
+          if (!isCancelled) {
+            controller.addError(error, stackTrace);
+            controller.close();
+          }
+        }
+      }
+
+      controller.onCancel = () => isCancelled = true;
+      unawaited(emitAppointments());
+    }, isBroadcast: true);
+  }
+
+  Future<void> updateAppointmentStatus(
+    String appointmentId,
+    String newStatus,
+  ) async {
+    if (_isDemoMode) {
+      await initializeDemoData();
+      final appointment = demoAppointments[appointmentId];
+      if (appointment == null) {
+        throw StateError('This appointment no longer exists.');
+      }
+      demoAppointments[appointmentId] = Appointment(
+        id: appointment.id,
+        patientId: appointment.patientId,
+        patientName: appointment.patientName,
+        doctorId: appointment.doctorId,
+        dateTime: appointment.dateTime,
+        status: newStatus,
+        reason: appointment.reason,
+        doctorName: appointment.doctorName,
+      );
+      await persistDemoData();
+      return;
+    }
+    await _appointmentsCollection().doc(appointmentId).update({
+      'status': newStatus,
+    });
   }
 
   Future<void> updateRecord(MedicalRecord record) async {
@@ -397,11 +621,12 @@ class FirestoreService {
       await initializeDemoData();
       return demoDocuments.values
           .where((document) => document.recordId == recordId)
-          .where((document) => patientId == null || document.patientId == patientId)
+          .where(
+            (document) => patientId == null || document.patientId == patientId,
+          )
           .toList();
     }
-    var query = _documentsCollection()
-        .where('recordId', isEqualTo: recordId);
+    var query = _documentsCollection().where('recordId', isEqualTo: recordId);
     if (patientId != null) {
       query = query.where('patientId', isEqualTo: patientId);
     }

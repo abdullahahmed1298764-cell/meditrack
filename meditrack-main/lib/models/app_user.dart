@@ -31,7 +31,7 @@ class AppUser {
   Map<String, dynamic> toMap() {
     return {
       'name': name,
-      'email': email,
+      'email': email.trim().toLowerCase(),
       'role': role,
       'isActive': isActive,
       'createdAt': Timestamp.fromDate(createdAt),

@@ -5,6 +5,7 @@ import '../../models/app_user.dart';
 import '../../models/medical_record.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/firestore_service.dart';
+import 'add_doctor_screen.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -55,6 +56,20 @@ class _AdminDashboardState extends State<AdminDashboard> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: () => Navigator.push<String>(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const AddDoctorScreen(),
+                        ),
+                      ),
+                      icon: const Icon(Icons.person_add_alt_1_outlined),
+                      label: const Text('Add Doctor'),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
                   GridView.count(
                     crossAxisCount: 3,
                     shrinkWrap: true,
